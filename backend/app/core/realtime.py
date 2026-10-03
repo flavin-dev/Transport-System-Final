@@ -99,7 +99,11 @@ class Hub:
         permitted = set()
         async with SessionLocal() as session:
             for ws in list(self._by_topic.get(topic, set())):
-                if await can_subscribe(session, self._principal[ws], topic):
+                # A socket can disconnect (and be removed) while we await below.
+                principal = self._principal.get(ws)
+                if principal is None:
+                    continue
+                if await can_subscribe(session, principal, topic):
                     permitted.add(ws)
                 else:
                     self.unsubscribe(ws, topic)

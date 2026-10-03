@@ -103,10 +103,11 @@ class RealtimeClient {
   }
 }
 
-/// One client per signed-in user (token refreshes don't reconnect).
+/// One client per signed-in user. Token refreshes don't recreate it: the client reads the
+/// latest access token on every (re)connect, and the server closes sockets whose token expired.
 final realtimeProvider = Provider<RealtimeClient?>((ref) {
-  final accessToken = ref.watch(sessionProvider.select((s) => s?.accessToken));
-  if (accessToken == null) return null;
+  final userId = ref.watch(sessionProvider.select((s) => s?.user.id));
+  if (userId == null) return null;
   final client = RealtimeClient(() => ref.read(sessionProvider)?.accessToken);
   ref.onDispose(client.dispose);
   return client;

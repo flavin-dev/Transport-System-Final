@@ -144,3 +144,41 @@ async def test_websocket_first_frame_auth_and_topic_denial(monkeypatch):
     await realtime.websocket_endpoint(ws)
     assert ws.sent == [{'type': 'error', 'data': {'code': 'forbidden_topic'}}]
     assert ws not in realtime.hub._principal
+
+
+async def test_send_to_topic_survives_socket_removed_mid_iteration(monkeypatch):
+    from contextlib import asynccontextmanager
+    from app.core import realtime
+    from app.core.deps import Principal
+
+    @asynccontextmanager
+    async def sessions():
+        yield object()
+
+    hub = realtime.Hub()
+
+    class Socket:
+        def __init__(self):
+            self.sent = []
+        async def send_json(self, frame):
+            self.sent.append(frame)
+        async def close(self, code):
+            pass
+
+    first, second = Socket(), Socket()
+    for ws, uid in ((first, 1), (second, 2)):
+        hub.add(ws, Principal(uid, Role.STUDENT), 'tok')
+        hub.subscribe(ws, 'trip:1')
+
+    async def allowed(session, principal, topic):
+        # The other socket disconnects while this permission check is awaited.
+        hub.remove(second if principal.id == 1 else first)
+        return True
+
+    async def authenticate(token, session):
+        return Principal(1, Role.STUDENT)
+
+    monkeypatch.setattr(realtime, 'SessionLocal', sessions)
+    monkeypatch.setattr(realtime, 'can_subscribe', allowed)
+    monkeypatch.setattr(realtime, 'authenticated_principal', authenticate)
+    await hub.send_to_topic('trip:1', 'ping', {})  # used to raise KeyError
